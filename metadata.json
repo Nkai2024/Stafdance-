@@ -1,0 +1,7 @@
+{
+  "name": "Copy of MediGuard Attendance",
+  "description": "A geolocation-based hospital staff attendance tracking system with admin oversight and AI-powered insights.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
