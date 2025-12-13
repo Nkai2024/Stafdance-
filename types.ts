@@ -1,5 +1,6 @@
 export enum UserRole {
-  ADMIN = 'ADMIN',
+  ADMIN = 'ADMIN', // Super Admin
+  MANAGER = 'MANAGER', // Hospital Admin
   STAFF = 'STAFF'
 }
 
@@ -13,6 +14,8 @@ export interface Hospital {
   id: string;
   name: string;
   registrationNumber: string;
+  username: string; // Used for Hospital Login
+  password: string; // Used for Hospital Login
   coords: Coords;
   radius: number; // in meters
 }
@@ -20,9 +23,9 @@ export interface Hospital {
 export interface User {
   id: string;
   name: string;
-  username: string;
   role: UserRole;
-  hospitalId?: string; // Links staff to a specific hospital
+  hospitalId: string; // Links staff to a specific hospital
+  pin: string; // Simple 4-digit pin for staff access
   boundDeviceId?: string; // Security: Locks user to a specific device/phone
 }
 

@@ -15,6 +15,62 @@ export const getOrCreateDeviceId = (): string => {
   return id;
 };
 
+// --- Config Sync (Link Generation) ---
+export const generateHospitalConfigLink = (hospitalId: string): string => {
+  const hospital = getHospitals().find(h => h.id === hospitalId);
+  const staff = getUsers().filter(u => u.hospitalId === hospitalId);
+  
+  if (!hospital) return '';
+
+  const payload = {
+    hospital,
+    staff,
+    timestamp: Date.now()
+  };
+
+  // Create a base64 encoded string of the configuration
+  const encoded = btoa(JSON.stringify(payload));
+  const url = new URL(window.location.href);
+  url.searchParams.set('config', encoded);
+  return url.toString();
+};
+
+export const importHospitalConfig = (encoded: string): { success: boolean, message: string, hospitalName?: string } => {
+  try {
+    const json = atob(encoded);
+    const payload = JSON.parse(json);
+    
+    if (!payload.hospital || !payload.staff) throw new Error("Invalid Config");
+
+    // 1. Save Hospital (Update if exists, add if not)
+    const hospitals = getHospitals();
+    const hIndex = hospitals.findIndex(h => h.id === payload.hospital.id);
+    if (hIndex >= 0) {
+      hospitals[hIndex] = payload.hospital;
+    } else {
+      hospitals.push(payload.hospital);
+    }
+    localStorage.setItem(HOSPITALS_KEY, JSON.stringify(hospitals));
+
+    // 2. Save Staff (Merge)
+    const users = getUsers();
+    payload.staff.forEach((newStaff: User) => {
+      const uIndex = users.findIndex(u => u.id === newStaff.id);
+      if (uIndex >= 0) {
+        users[uIndex] = newStaff;
+      } else {
+        users.push(newStaff);
+      }
+    });
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+    return { success: true, message: 'Configuration imported successfully.', hospitalName: payload.hospital.name };
+  } catch (e) {
+    console.error(e);
+    return { success: false, message: 'Failed to import configuration. Link may be corrupted.' };
+  }
+};
+
 // --- Hospitals ---
 export const getHospitals = (): Hospital[] => {
   const data = localStorage.getItem(HOSPITALS_KEY);
@@ -33,6 +89,10 @@ export const getUsers = (): User[] => {
   return data ? JSON.parse(data) : [];
 };
 
+export const getStaffByHospital = (hospitalId: string): User[] => {
+  return getUsers().filter(u => u.hospitalId === hospitalId && u.role === UserRole.STAFF);
+};
+
 export const saveUser = (user: User) => {
   const users = getUsers();
   users.push(user);
@@ -48,56 +108,14 @@ export const updateUser = (updatedUser: User) => {
   }
 };
 
-/**
- * Handles the secure login process enforcing "One Device One Phone"
- */
-export const validateAndLoginUser = (username: string): { success: boolean, error?: string, user?: User } => {
-  const users = getUsers();
-  const targetUser = users.find(u => u.username === username);
-
-  if (!targetUser) {
-    return { success: false, error: 'User not found. Check username.' };
-  }
-
-  // Admin bypasses device locks for management purposes
-  if (targetUser.role === UserRole.ADMIN) {
-    return { success: true, user: targetUser };
-  }
-
-  const currentDeviceId = getOrCreateDeviceId();
-
-  // SECURITY CHECK 1: Is this device already owned by ANOTHER staff member?
-  // Prevent Staff A from logging in on Staff B's phone.
-  const deviceOwner = users.find(u => u.boundDeviceId === currentDeviceId && u.id !== targetUser.id);
-  if (deviceOwner) {
-    return {
-      success: false,
-      error: `Security Alert: This device is already registered to ${deviceOwner.name}. You cannot log in here.`
-    };
-  }
-
-  // SECURITY CHECK 2: Is this user already bound to a DIFFERENT device?
-  // Prevent Staff A (who has Phone A) from logging in on Phone B.
-  if (targetUser.boundDeviceId && targetUser.boundDeviceId !== currentDeviceId) {
-    return {
-      success: false,
-      error: `Security Alert: Your account is linked to a different device. Please use your registered phone or ask Admin to reset.`
-    };
-  }
-
-  // If checks pass, BIND the device if it's the first time
-  if (!targetUser.boundDeviceId) {
-    targetUser.boundDeviceId = currentDeviceId;
-    updateUser(targetUser); // Save the binding permanently
-  }
-
-  return { success: true, user: targetUser };
+export const deleteUser = (userId: string) => {
+    const users = getUsers().filter(u => u.id !== userId);
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
 };
 
-// kept for backward compatibility if needed, but validateAndLoginUser is preferred
-export const loginUser = (username: string): User | null => {
-  const res = validateAndLoginUser(username);
-  return res.success && res.user ? res.user : null;
+export const loginHospital = (username: string, password: string): Hospital | null => {
+  const hospitals = getHospitals();
+  return hospitals.find(h => h.username === username && h.password === password) || null;
 };
 
 // --- Attendance ---
@@ -123,19 +141,26 @@ export const updateAttendanceRecord = (updatedRecord: AttendanceRecord) => {
 
 export const getActiveRecord = (userId: string): AttendanceRecord | undefined => {
   const records = getAttendanceRecords();
-  // Find record where checkOutTime is missing
   return records.find(r => r.userId === userId && !r.checkOutTime);
 };
 
-// Initialize Admin if empty
+// --- Logs Export ---
+export const exportLogs = (hospitalId: string): string => {
+    const logs = getAttendanceRecords().filter(r => r.hospitalId === hospitalId);
+    return JSON.stringify(logs, null, 2);
+};
+
+// Initialize Mock Data
 export const initMockData = () => {
+  // Check for Super Admin
   const users = getUsers();
   if (!users.some(u => u.role === UserRole.ADMIN)) {
     saveUser({
-      id: 'admin-1',
-      name: 'Hospital Administrator',
-      username: 'admin',
-      role: UserRole.ADMIN
+      id: 'admin-super',
+      name: 'System Owner',
+      role: UserRole.ADMIN,
+      hospitalId: '',
+      pin: '0000'
     });
   }
 };
