@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Hospital, User, UserRole, AttendanceRecord } from '../types';
-import { getStaffByHospital, saveUser, deleteUser, generateHospitalConfigLink, getAttendanceRecords, importAttendanceData } from '../services/storage';
+import { getStaffByHospital, saveUser, deleteUser, generateHospitalConfigLink, getAttendanceRecords, importAttendanceData, updateHospital } from '../services/storage';
 import { generateAttendancePDF } from '../services/pdfGenerator';
+import { analyzeAttendance } from '../services/geminiService';
 import StaffDashboard from './StaffDashboard';
-import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, Calendar, RefreshCw, Clipboard } from 'lucide-react';
+import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, Calendar, RefreshCw, Clipboard, Mail, Send, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface HospitalPortalProps {
   hospital: Hospital;
@@ -27,6 +28,11 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
   const [logPassInput, setLogPassInput] = useState('');
   const [logPassError, setLogPassError] = useState('');
   
+  // Email Report State
+  const [emailRecipient, setEmailRecipient] = useState(hospital.emailReportConfig?.recipientEmail || '');
+  const [isReportLoading, setIsReportLoading] = useState(false);
+  const [reportDue, setReportDue] = useState(false);
+  
   // Date Range State
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -43,10 +49,85 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
     const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
     setStartDate(firstDay.toISOString().split('T')[0]);
     setEndDate(now.toISOString().split('T')[0]);
+    
+    checkReportDue();
   }, [hospital.id]);
 
   const loadData = () => {
     setStaffList(getStaffByHospital(hospital.id));
+  };
+
+  const checkReportDue = () => {
+    if (!hospital.emailReportConfig?.enabled) return;
+    
+    const lastSent = hospital.emailReportConfig.lastReportDate ? new Date(hospital.emailReportConfig.lastReportDate) : null;
+    if (!lastSent) {
+      setReportDue(true);
+      return;
+    }
+
+    const diffTime = Math.abs(Date.now() - lastSent.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    if (diffDays >= 7) {
+      setReportDue(true);
+    }
+  };
+
+  const handleSaveEmailConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updatedHospital: Hospital = {
+      ...hospital,
+      emailReportConfig: {
+        recipientEmail: emailRecipient,
+        lastReportDate: hospital.emailReportConfig?.lastReportDate,
+        enabled: true
+      }
+    };
+    updateHospital(updatedHospital);
+    alert("Email settings saved. We will remind you to generate reports weekly.");
+    checkReportDue();
+  };
+
+  const handleGenerateWeeklyReport = async () => {
+    setIsReportLoading(true);
+    try {
+      // 1. Get records for last 7 days
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      const records = getAttendanceRecords().filter(r => 
+        r.hospitalId === hospital.id && 
+        new Date(r.checkInTime) >= oneWeekAgo
+      );
+
+      // 2. Generate AI Summary
+      const summary = await analyzeAttendance(records, [hospital]);
+
+      // 3. Construct Mailto Link
+      const subject = encodeURIComponent(`Weekly Attendance Report: ${hospital.name} (${new Date().toLocaleDateString()})`);
+      const body = encodeURIComponent(summary);
+      
+      // 4. Update "Last Sent" date
+      const updatedHospital: Hospital = {
+        ...hospital,
+        emailReportConfig: {
+          ...hospital.emailReportConfig!,
+          recipientEmail: emailRecipient,
+          lastReportDate: new Date().toISOString()
+        }
+      };
+      await updateHospital(updatedHospital);
+      setReportDue(false);
+
+      // 5. Open Email Client
+      window.location.href = `mailto:${emailRecipient}?subject=${subject}&body=${body}`;
+
+    } catch (error) {
+      alert("Failed to generate report.");
+      console.error(error);
+    } finally {
+      setIsReportLoading(false);
+    }
   };
 
   const handleAddStaff = (e: React.FormEvent) => {
@@ -169,6 +250,59 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
         <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-xl border shadow-sm space-y-6">
             
+             {/* WEEKLY REPORTING (NEW) */}
+             <div className="bg-gradient-to-br from-indigo-50 to-blue-50 p-4 rounded-lg border border-indigo-100">
+              <h3 className="font-semibold mb-3 flex items-center gap-2 text-indigo-900">
+                <Mail className="w-5 h-5" /> Automated Weekly Reports
+              </h3>
+              
+              {!hospital.emailReportConfig?.enabled ? (
+                <form onSubmit={handleSaveEmailConfig} className="space-y-3">
+                  <p className="text-xs text-indigo-800">Enter your email to receive weekly AI-summarized attendance reports.</p>
+                  <div className="flex gap-2">
+                    <input 
+                      type="email" 
+                      value={emailRecipient} 
+                      onChange={e => setEmailRecipient(e.target.value)} 
+                      placeholder="manager@hospital.com" 
+                      className="flex-1 p-2 border border-indigo-200 rounded text-sm"
+                      required
+                    />
+                    <button className="bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700">Save</button>
+                  </div>
+                </form>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-indigo-900">
+                      <strong>To:</strong> {hospital.emailReportConfig.recipientEmail}
+                    </div>
+                    <button onClick={() => updateHospital({...hospital, emailReportConfig: undefined})} className="text-xs text-slate-400 hover:text-red-500">Change</button>
+                  </div>
+
+                  {reportDue ? (
+                    <div className="flex items-center gap-2 p-2 bg-amber-100 text-amber-800 rounded text-xs font-bold animate-pulse">
+                      <Send className="w-4 h-4" /> Weekly Report is DUE now!
+                    </div>
+                  ) : (
+                     <div className="flex items-center gap-2 text-xs text-green-700">
+                      <CheckCircle2 className="w-4 h-4" /> You are up to date.
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={handleGenerateWeeklyReport} 
+                    disabled={isReportLoading}
+                    className="w-full bg-indigo-600 text-white py-2 rounded flex items-center justify-center gap-2 hover:bg-indigo-700 shadow-sm"
+                  >
+                    {isReportLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {isReportLoading ? 'AI is Writing...' : 'Generate & Email Report'}
+                  </button>
+                  <p className="text-[10px] text-indigo-400 text-center">Uses AI to summarize the last 7 days of logs.</p>
+                </div>
+              )}
+            </div>
+
             {/* ADD STAFF */}
             <div>
               <h3 className="font-semibold mb-4 flex items-center gap-2"><UserPlus className="w-5 h-5 text-green-600" /> Add New Staff</h3>

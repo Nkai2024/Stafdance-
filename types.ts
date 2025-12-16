@@ -19,6 +19,11 @@ export interface Hospital {
   logViewPassword?: string; // New: Secondary password for viewing logs
   coords: Coords;
   radius: number; // in meters
+  emailReportConfig?: {
+    recipientEmail: string;
+    lastReportDate?: string; // ISO string
+    enabled: boolean;
+  };
 }
 
 export interface User {

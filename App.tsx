@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Hospital, UserRole } from './types';
-import { initMockData, loginHospital, importHospitalConfig } from './services/storage';
+import { initMockData, loginHospital, importHospitalConfig, syncFromSupabase } from './services/storage';
 import AdminDashboard from './components/AdminDashboard';
 import HospitalPortal from './components/HospitalPortal';
-import { Activity, Building2, Lock, Shield, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Activity, Building2, Lock, Shield, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 const App: React.FC = () => {
   // Auth State
@@ -19,11 +19,20 @@ const App: React.FC = () => {
 
   // Config Import State
   const [importStatus, setImportStatus] = useState<{success: boolean, message: string} | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     initMockData();
 
-    // Check for Config Link (Sync)
+    // 1. Attempt Cloud Sync on Load
+    const performSync = async () => {
+      setIsSyncing(true);
+      await syncFromSupabase();
+      setIsSyncing(false);
+    };
+    performSync();
+
+    // 2. Check for Config Link (Deep Link Sync)
     const params = new URLSearchParams(window.location.search);
     const config = params.get('config');
     if (config) {
@@ -96,6 +105,12 @@ const App: React.FC = () => {
            </div>
            <button onClick={() => setImportStatus(null)} className="ml-auto text-white/80 hover:text-white">✕</button>
         </div>
+      )}
+
+      {isSyncing && (
+         <div className="fixed top-4 right-4 bg-white/90 p-2 rounded-full shadow-lg flex items-center gap-2 text-xs font-bold text-blue-600 z-50">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Syncing...
+         </div>
       )}
 
       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden border border-slate-200">

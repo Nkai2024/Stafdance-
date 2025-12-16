@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Hospital } from '../types';
 import { getHospitals, saveHospital, updateHospital, deleteHospital } from '../services/storage';
+import { isCloudConfigured, updateSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { getCurrentPosition } from '../services/geoUtils';
-import { PlusCircle, MapPin, Loader2, LogOut, Building, Trash2, Edit2, XCircle, Save } from 'lucide-react';
+import { PlusCircle, MapPin, Loader2, LogOut, Building, Trash2, Edit2, XCircle, Save, Cloud, CheckCircle, Database, AlertTriangle } from 'lucide-react';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -11,8 +12,13 @@ interface AdminDashboardProps {
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   
+  // Cloud Config State
+  const [showCloudConfig, setShowCloudConfig] = useState(false);
+  const [sbUrl, setSbUrl] = useState('');
+  const [sbKey, setSbKey] = useState('');
+
   // Forms
-  const [editId, setEditId] = useState<string | null>(null); // New: Track which ID is being edited
+  const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [regNumber, setRegNumber] = useState('');
   const [username, setUsername] = useState('');
@@ -40,7 +46,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     setUsername(hospital.username);
     setPassword(hospital.password);
     setLogViewPassword(hospital.logViewPassword || '');
-    // Note: We don't reset geolocation on simple edit unless we re-capture
   };
 
   const handleDeleteClick = (id: string, hospitalName: string) => {
@@ -51,10 +56,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     }
   };
 
+  const handleCloudSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if(sbUrl && sbKey) {
+      updateSupabaseConfig(sbUrl, sbKey);
+    }
+  };
+
+  const handleDisconnectCloud = () => {
+    if(confirm("Disconnect from cloud database? The app will revert to local storage only.")) {
+      clearSupabaseConfig();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // CASE 1: Editing Existing Hospital
     if (editId) {
       const original = hospitals.find(h => h.id === editId);
       if (!original) return;
@@ -66,7 +83,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         username,
         password,
         logViewPassword,
-        // Keep original coords unless we add a feature to specifically "Move" hospital
       };
       
       updateHospital(updatedHospital);
@@ -76,7 +92,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       return;
     }
 
-    // CASE 2: Creating New Hospital (Requires Geo)
     setLoadingGeo(true);
     try {
       const position = await getCurrentPosition();
@@ -108,15 +123,84 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border">
+      
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border gap-4">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
            <Building className="w-6 h-6 text-blue-600" /> System Administration
         </h2>
-        <button onClick={onLogout} className="flex items-center gap-2 text-red-600 hover:bg-red-50 px-3 py-2 rounded transition">
-           <LogOut className="w-4 h-4" /> Logout
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setShowCloudConfig(!showCloudConfig)} 
+            className={`flex items-center gap-2 px-3 py-2 rounded transition border ${isCloudConfigured ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+          >
+             {isCloudConfigured ? <CheckCircle className="w-4 h-4" /> : <Cloud className="w-4 h-4" />} 
+             {isCloudConfigured ? 'Cloud Connected' : 'Setup Cloud'}
+          </button>
+          <button onClick={onLogout} className="flex items-center gap-2 text-red-600 hover:bg-red-50 px-3 py-2 rounded transition">
+             <LogOut className="w-4 h-4" /> Logout
+          </button>
+        </div>
       </div>
 
+      {/* CLOUD CONFIG PANEL */}
+      {showCloudConfig && (
+        <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg border border-slate-700 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Database className="w-5 h-5 text-blue-400" />
+            <h3 className="text-lg font-bold">Cloud Database Setup (Supabase)</h3>
+          </div>
+          
+          {isCloudConfigured ? (
+            <div className="space-y-4">
+               <div className="bg-green-900/30 border border-green-800 p-4 rounded flex items-start gap-3">
+                 <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                 <div>
+                   <p className="font-semibold text-green-400">Database Connected</p>
+                   <p className="text-sm text-green-200/70">Your application is currently syncing with the cloud. Data is safe.</p>
+                 </div>
+               </div>
+               <button onClick={handleDisconnectCloud} className="text-red-400 hover:text-red-300 text-sm hover:underline">
+                 Disconnect and remove keys
+               </button>
+            </div>
+          ) : (
+            <form onSubmit={handleCloudSave} className="space-y-4">
+              <p className="text-slate-300 text-sm">Enter your Supabase project details to enable real-time syncing across devices.</p>
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Project URL</label>
+                  <input 
+                    type="text" 
+                    value={sbUrl} 
+                    onChange={e => setSbUrl(e.target.value)}
+                    placeholder="https://xyz.supabase.co" 
+                    className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Anon API Key</label>
+                  <input 
+                    type="password" 
+                    value={sbKey} 
+                    onChange={e => setSbKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5..." 
+                    className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition">Connect Database</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* MAIN CONTENT GRID */}
       <div className="grid md:grid-cols-2 gap-8">
         {/* FORM SECTION */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-fit">
