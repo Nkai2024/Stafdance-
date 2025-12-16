@@ -28,6 +28,7 @@ export interface User {
   hospitalId: string; // Links staff to a specific hospital
   pin: string; // Simple 4-digit pin for staff access
   boundDeviceId?: string; // Security: Locks user to a specific device/phone
+  profilePicture?: string; // Base64 string of the image
 }
 
 export interface AttendanceRecord {

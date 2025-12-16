@@ -3,7 +3,7 @@ import { Hospital, User, UserRole, AttendanceRecord } from '../types';
 import { getStaffByHospital, saveUser, deleteUser, generateHospitalConfigLink, getAttendanceRecords } from '../services/storage';
 import { generateAttendancePDF } from '../services/pdfGenerator';
 import StaffDashboard from './StaffDashboard';
-import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, ShieldQuestion } from 'lucide-react';
+import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, Calendar } from 'lucide-react';
 
 interface HospitalPortalProps {
   hospital: Hospital;
@@ -15,6 +15,10 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
   const [staffList, setStaffList] = useState<User[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<User | null>(null);
   
+  // Staff Login State
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
   // Manager State
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
@@ -22,13 +26,18 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
   const [showLogPassPrompt, setShowLogPassPrompt] = useState(false);
   const [logPassInput, setLogPassInput] = useState('');
   const [logPassError, setLogPassError] = useState('');
-
-  // Staff Login State
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
+  
+  // Date Range State
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   useEffect(() => {
     loadData();
+    // Default date range: 1st of current month to today
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    setStartDate(firstDay.toISOString().split('T')[0]);
+    setEndDate(now.toISOString().split('T')[0]);
   }, [hospital.id]);
 
   const loadData = () => {
@@ -81,18 +90,33 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
 
   const handleLogExport = (e: React.FormEvent) => {
     e.preventDefault();
-    if (logPassInput === hospital.logViewPassword) {
+    // Validate password, handling potential undefined values safely
+    const storedPass = hospital.logViewPassword || '';
+    const inputPass = logPassInput || '';
+
+    if (inputPass === storedPass && storedPass !== '') {
       setLogPassError('');
       setShowLogPassPrompt(false);
       setLogPassInput('');
-      const logs = getAttendanceRecords().filter(r => r.hospitalId === hospital.id);
+      
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      const logs = getAttendanceRecords().filter(r => {
+        if (r.hospitalId !== hospital.id) return false;
+        const rDate = new Date(r.checkInTime);
+        return rDate >= start && rDate <= end;
+      });
+
       if (logs.length === 0) {
-        alert("No attendance records to export.");
+        alert("No attendance records found for the selected date range.");
         return;
       }
       generateAttendancePDF(logs, hospital.name);
     } else {
-      setLogPassError('Incorrect password.');
+      setLogPassError('Incorrect password. Please contact Admin if you forgot it.');
     }
   };
 
@@ -142,12 +166,22 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
               <button onClick={() => setShowLogPassPrompt(true)} className="w-full border border-slate-200 text-slate-700 py-2 rounded hover:bg-slate-50">Download Attendance PDF</button>
               {showLogPassPrompt && (
                 <form onSubmit={handleLogExport} className="mt-4 p-4 bg-slate-50 rounded-lg border">
+                  
+                  <div className="mb-4 space-y-2">
+                    <label className="block text-xs font-bold text-slate-500 uppercase">Date Range</label>
+                    <div className="flex gap-2">
+                      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded text-sm" required />
+                      <span className="self-center text-slate-400">-</span>
+                      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded text-sm" required />
+                    </div>
+                  </div>
+
                   <p className="text-sm font-medium mb-2">Enter Log View Password</p>
                   <input type="password" value={logPassInput} onChange={e => setLogPassInput(e.target.value)} className="w-full p-2 border rounded" autoFocus />
                   {logPassError && <p className="text-xs text-red-500 mt-1">{logPassError}</p>}
                   <div className="flex gap-2 mt-2">
                     <button type="button" onClick={() => {setShowLogPassPrompt(false); setLogPassError('');}} className="w-full text-sm text-center py-2 rounded bg-slate-200 hover:bg-slate-300">Cancel</button>
-                    <button type="submit" className="w-full text-sm text-center py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Confirm</button>
+                    <button type="submit" className="w-full text-sm text-center py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Download</button>
                   </div>
                 </form>
               )}
@@ -158,9 +192,18 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
             <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {staffList.map(s => (
                 <div key={s.id} className="flex justify-between items-center p-2 bg-slate-50 rounded">
-                  <div>
-                    <div className="font-medium">{s.name}</div>
-                    <div className="text-xs text-slate-500">PIN: {s.pin}</div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center">
+                        {s.profilePicture ? (
+                            <img src={s.profilePicture} alt="Pic" className="w-full h-full object-cover" />
+                        ) : (
+                            <span className="text-xs font-bold text-slate-500">{s.name[0]}</span>
+                        )}
+                    </div>
+                    <div>
+                        <div className="font-medium">{s.name}</div>
+                        <div className="text-xs text-slate-500">PIN: {s.pin}</div>
+                    </div>
                   </div>
                   <button onClick={() => handleDeleteStaff(s.id)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4" /></button>
                 </div>
@@ -193,7 +236,13 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
             <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-100">
                <button onClick={() => setSelectedStaff(null)} className="text-sm text-slate-400 mb-4 hover:text-slate-600">← Back to list</button>
                <div className="text-center mb-6">
-                 <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-2">{selectedStaff.name[0]}</div>
+                 <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-3 shadow-inner overflow-hidden">
+                    {selectedStaff.profilePicture ? (
+                        <img src={selectedStaff.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                        selectedStaff.name[0]
+                    )}
+                 </div>
                  <h3 className="text-lg font-bold">{selectedStaff.name}</h3>
                  <p className="text-sm text-slate-500">Enter your PIN to verify</p>
                </div>
@@ -208,7 +257,13 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
             <div className="grid grid-cols-2 gap-3">
               {staffList.map(s => (
                 <button key={s.id} onClick={() => handleStaffSelect(s)} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 hover:border-blue-400 hover:shadow-md transition text-center group">
-                  <div className="w-12 h-12 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center text-lg font-bold mx-auto mb-2 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">{s.name[0]}</div>
+                  <div className="w-12 h-12 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center text-lg font-bold mx-auto mb-2 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors overflow-hidden">
+                    {s.profilePicture ? (
+                        <img src={s.profilePicture} alt="P" className="w-full h-full object-cover" />
+                    ) : (
+                        s.name[0]
+                    )}
+                  </div>
                   <div className="font-medium text-slate-800 truncate">{s.name}</div>
                 </button>
               ))}

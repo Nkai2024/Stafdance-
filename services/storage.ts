@@ -83,6 +83,23 @@ export const saveHospital = (hospital: Hospital) => {
   localStorage.setItem(HOSPITALS_KEY, JSON.stringify(hospitals));
 };
 
+export const updateHospital = (updatedHospital: Hospital) => {
+  const hospitals = getHospitals();
+  const index = hospitals.findIndex(h => h.id === updatedHospital.id);
+  if (index !== -1) {
+    hospitals[index] = updatedHospital;
+    localStorage.setItem(HOSPITALS_KEY, JSON.stringify(hospitals));
+  }
+};
+
+export const deleteHospital = (hospitalId: string) => {
+  const hospitals = getHospitals().filter(h => h.id !== hospitalId);
+  localStorage.setItem(HOSPITALS_KEY, JSON.stringify(hospitals));
+  
+  // Optional: Cleanup associated users or records if needed, 
+  // but keeping them for audit logs is often safer.
+};
+
 // --- Users ---
 export const getUsers = (): User[] => {
   const data = localStorage.getItem(USERS_KEY);
