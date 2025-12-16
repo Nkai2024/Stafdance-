@@ -3,7 +3,7 @@ import { Hospital } from '../types';
 import { getHospitals, saveHospital, updateHospital, deleteHospital } from '../services/storage';
 import { isCloudConfigured, updateSupabaseConfig, clearSupabaseConfig } from '../services/supabaseClient';
 import { getCurrentPosition } from '../services/geoUtils';
-import { PlusCircle, MapPin, Loader2, LogOut, Building, Trash2, Edit2, XCircle, Save, Cloud, CheckCircle, Database, AlertTriangle } from 'lucide-react';
+import { PlusCircle, MapPin, Loader2, LogOut, Building, Trash2, Edit2, XCircle, Save, Cloud, CheckCircle, Database, AlertTriangle, Code, Copy, Settings } from 'lucide-react';
 
 interface AdminDashboardProps {
   onLogout: () => void;
@@ -14,6 +14,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   
   // Cloud Config State
   const [showCloudConfig, setShowCloudConfig] = useState(false);
+  const [configTab, setConfigTab] = useState<'CONNECT' | 'SQL'>('CONNECT');
   const [sbUrl, setSbUrl] = useState('');
   const [sbKey, setSbKey] = useState('');
 
@@ -67,6 +68,64 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     if(confirm("Disconnect from cloud database? The app will revert to local storage only.")) {
       clearSupabaseConfig();
     }
+  };
+
+  const handleCopySql = () => {
+    const sql = `
+-- 1. Create Hospitals Table
+create table public.hospitals (
+  id uuid not null primary key,
+  name text not null,
+  "registrationNumber" text,
+  username text,
+  password text,
+  "logViewPassword" text,
+  coords jsonb,
+  radius numeric,
+  "emailReportConfig" jsonb
+);
+
+-- 2. Create Users Table
+create table public.users (
+  id uuid not null primary key,
+  name text not null,
+  role text,
+  hospital_id text,
+  pin text,
+  bound_device_id text,
+  profile_picture text
+);
+
+-- 3. Create Attendance Table
+create table public.attendance_records (
+  id uuid not null primary key,
+  user_id text,
+  user_name text,
+  hospital_id text,
+  hospital_name text,
+  check_in_time text,
+  check_out_time text,
+  check_in_coords jsonb,
+  check_out_coords jsonb,
+  flagged boolean,
+  distance_from_center numeric,
+  duration_minutes numeric,
+  check_in_device_id text,
+  check_out_device_id text,
+  anomaly text
+);
+
+-- 4. Enable RLS but allow Anon access (for this demo)
+alter table public.hospitals enable row level security;
+alter table public.users enable row level security;
+alter table public.attendance_records enable row level security;
+
+create policy "Allow all for anon" on public.hospitals for all using (true) with check (true);
+create policy "Allow all for anon" on public.users for all using (true) with check (true);
+create policy "Allow all for anon" on public.attendance_records for all using (true) with check (true);
+    `;
+    navigator.clipboard.writeText(sql);
+    alert("SQL copied! Paste this into the SQL Editor in your Supabase Dashboard.");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -132,10 +191,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         <div className="flex gap-2">
           <button 
             onClick={() => setShowCloudConfig(!showCloudConfig)} 
-            className={`flex items-center gap-2 px-3 py-2 rounded transition border ${isCloudConfigured ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
+            className={`flex items-center gap-2 px-3 py-2 rounded transition border ${isCloudConfigured ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}
           >
-             {isCloudConfigured ? <CheckCircle className="w-4 h-4" /> : <Cloud className="w-4 h-4" />} 
-             {isCloudConfigured ? 'Cloud Connected' : 'Setup Cloud'}
+             {isCloudConfigured ? <Settings className="w-4 h-4" /> : <Cloud className="w-4 h-4" />} 
+             {isCloudConfigured ? 'Cloud Settings' : 'Setup Cloud'}
           </button>
           <button onClick={onLogout} className="flex items-center gap-2 text-red-600 hover:bg-red-50 px-3 py-2 rounded transition">
              <LogOut className="w-4 h-4" /> Logout
@@ -146,57 +205,147 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       {/* CLOUD CONFIG PANEL */}
       {showCloudConfig && (
         <div className="bg-slate-800 text-white p-6 rounded-xl shadow-lg border border-slate-700 animate-in fade-in slide-in-from-top-4">
-          <div className="flex items-center gap-2 mb-4">
-            <Database className="w-5 h-5 text-blue-400" />
-            <h3 className="text-lg font-bold">Cloud Database Setup (Supabase)</h3>
+          <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-2">
+            <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-blue-400" />
+              <h3 className="text-lg font-bold">Cloud Database</h3>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setConfigTab('CONNECT')} 
+                className={`px-3 py-1 text-xs font-bold rounded ${configTab === 'CONNECT' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}
+              >
+                1. Connect
+              </button>
+              <button 
+                onClick={() => setConfigTab('SQL')} 
+                className={`px-3 py-1 text-xs font-bold rounded ${configTab === 'SQL' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}
+              >
+                2. Database Tables
+              </button>
+            </div>
           </div>
           
-          {isCloudConfigured ? (
-            <div className="space-y-4">
-               <div className="bg-green-900/30 border border-green-800 p-4 rounded flex items-start gap-3">
-                 <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
-                 <div>
-                   <p className="font-semibold text-green-400">Database Connected</p>
-                   <p className="text-sm text-green-200/70">Your application is currently syncing with the cloud. Data is safe.</p>
+          <div className="min-h-[200px]">
+            {configTab === 'CONNECT' && (
+              <div className="space-y-4 animate-in fade-in">
+                 <p className="text-slate-300 text-sm">Enter your Supabase project keys to enable real-time syncing.</p>
+                 
+                 {isCloudConfigured ? (
+                   <div className="bg-green-900/30 border border-green-800 p-4 rounded flex items-start gap-3">
+                     <CheckCircle className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
+                     <div className="w-full">
+                       <p className="font-semibold text-green-400">Database Connected</p>
+                       <p className="text-sm text-green-200/70 mb-3">Sync is active. Data is stored in the cloud.</p>
+                       <button onClick={handleDisconnectCloud} className="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded hover:bg-red-900 border border-red-800">
+                        Disconnect / Change Keys
+                       </button>
+                     </div>
+                   </div>
+                 ) : (
+                  <form onSubmit={handleCloudSave} className="space-y-4 max-w-md">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Project URL</label>
+                      <input 
+                        type="text" 
+                        value={sbUrl} 
+                        onChange={e => setSbUrl(e.target.value)}
+                        placeholder="https://xyz.supabase.co" 
+                        className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Anon API Key</label>
+                      <input 
+                        type="password" 
+                        value={sbKey} 
+                        onChange={e => setSbKey(e.target.value)}
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5..." 
+                        className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition w-full">Connect Database</button>
+                  </form>
+                 )}
+              </div>
+            )}
+
+            {configTab === 'SQL' && (
+              <div className="space-y-4 animate-in fade-in">
+                 <div className="flex items-start gap-3 bg-amber-900/30 border border-amber-800 p-3 rounded">
+                    <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+                    <div>
+                      <p className="text-sm text-amber-200 font-bold">Required Setup</p>
+                      <p className="text-xs text-amber-200/70">After connecting, you MUST run this SQL code in your Supabase SQL Editor to create the tables. Without this, syncing will fail.</p>
+                    </div>
                  </div>
-               </div>
-               <button onClick={handleDisconnectCloud} className="text-red-400 hover:text-red-300 text-sm hover:underline">
-                 Disconnect and remove keys
-               </button>
-            </div>
-          ) : (
-            <form onSubmit={handleCloudSave} className="space-y-4">
-              <p className="text-slate-300 text-sm">Enter your Supabase project details to enable real-time syncing across devices.</p>
-              
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Project URL</label>
-                  <input 
-                    type="text" 
-                    value={sbUrl} 
-                    onChange={e => setSbUrl(e.target.value)}
-                    placeholder="https://xyz.supabase.co" 
-                    className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Anon API Key</label>
-                  <input 
-                    type="password" 
-                    value={sbKey} 
-                    onChange={e => setSbKey(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5..." 
-                    className="w-full p-2 rounded bg-slate-900 border border-slate-700 text-white focus:border-blue-500 outline-none"
-                    required
-                  />
-                </div>
+                 
+                 <div className="relative group">
+                   <div className="absolute right-2 top-2">
+                     <button 
+                        onClick={handleCopySql}
+                        className="bg-slate-600 hover:bg-slate-500 text-white text-xs px-3 py-1.5 rounded flex items-center gap-2 transition"
+                     >
+                       <Copy className="w-3 h-3" /> Copy SQL
+                     </button>
+                   </div>
+                   <pre className="bg-slate-950 p-4 rounded border border-slate-800 text-[10px] font-mono text-slate-400 overflow-x-auto h-48">
+{`-- 1. Create Hospitals Table
+create table public.hospitals (
+  id uuid not null primary key,
+  name text not null,
+  "registrationNumber" text,
+  username text,
+  password text,
+  "logViewPassword" text,
+  coords jsonb,
+  radius numeric,
+  "emailReportConfig" jsonb
+);
+
+-- 2. Create Users Table
+create table public.users (
+  id uuid not null primary key,
+  name text not null,
+  role text,
+  hospital_id text,
+  pin text,
+  bound_device_id text,
+  profile_picture text
+);
+
+-- 3. Create Attendance Table
+create table public.attendance_records (
+  id uuid not null primary key,
+  user_id text,
+  user_name text,
+  hospital_id text,
+  hospital_name text,
+  check_in_time text,
+  check_out_time text,
+  check_in_coords jsonb,
+  check_out_coords jsonb,
+  flagged boolean,
+  distance_from_center numeric,
+  duration_minutes numeric,
+  check_in_device_id text,
+  check_out_device_id text,
+  anomaly text
+);
+
+-- 4. Enable RLS
+alter table public.hospitals enable row level security;
+alter table public.users enable row level security;
+alter table public.attendance_records enable row level security;
+
+create policy "Anon All" on public.hospitals for all using (true) with check (true);
+create policy "Anon All" on public.users for all using (true) with check (true);
+create policy "Anon All" on public.attendance_records for all using (true) with check (true);`}
+                   </pre>
+                 </div>
               </div>
-              <div className="flex justify-end pt-2">
-                <button className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold transition">Connect Database</button>
-              </div>
-            </form>
-          )}
+            )}
+          </div>
         </div>
       )}
 
