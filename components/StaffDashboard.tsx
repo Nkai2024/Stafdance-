@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Hospital, AttendanceRecord } from '../types';
-import { getHospitals, getActiveRecord, saveAttendanceRecord, updateAttendanceRecord } from '../services/storage';
+import { getHospitals, getActiveRecord, saveAttendanceRecord, updateAttendanceRecord, getOrCreateDeviceId, updateUser } from '../services/storage';
 import { getCurrentPosition, calculateDistance } from '../services/geoUtils';
 import { MapPin, LogIn, LogOut, Clock, AlertCircle, Building2 } from 'lucide-react';
 
@@ -20,7 +20,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
 
   useEffect(() => {
     setHospitals(getHospitals());
-    // Check if user has an ongoing shift
     const current = getActiveRecord(user.id);
     if (current) {
       setActiveShift(current);
@@ -31,10 +30,8 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
   useEffect(() => {
     let interval: number | undefined;
     if (activeShift && !activeShift.checkOutTime) {
-      // Calculate initial offset
       const startTime = new Date(activeShift.checkInTime).getTime();
       setElapsed(Date.now() - startTime);
-
       interval = window.setInterval(() => {
         setElapsed(Date.now() - startTime);
       }, 1000);
@@ -50,7 +47,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
     
-    // Pad with leading zeros
     const hh = hours.toString().padStart(2, '0');
     const mm = minutes.toString().padStart(2, '0');
     const ss = seconds.toString().padStart(2, '0');
@@ -76,11 +72,17 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
       };
 
       const distance = calculateDistance(userCoords, hospital.coords);
-      const isWithinRange = distance <= hospital.radius + 15; // Allowing 15m buffer for GPS drift
-
-      // If outside range, we still log but we flag it and warn the user
+      const isWithinRange = distance <= hospital.radius + 15;
       const isFlagged = !isWithinRange;
+      const deviceId = getOrCreateDeviceId();
 
+      // --- Device Binding Logic ---
+      if (!user.boundDeviceId) {
+        const updatedUser = { ...user, boundDeviceId: deviceId };
+        updateUser(updatedUser);
+        console.log(`Device ${deviceId} bound to ${user.name}`);
+      }
+      
       const newRecord: AttendanceRecord = {
         id: crypto.randomUUID(),
         userId: user.id,
@@ -91,6 +93,7 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
         checkInCoords: userCoords,
         flagged: isFlagged,
         distanceFromCenter: distance,
+        checkInDeviceId: deviceId,
       };
 
       saveAttendanceRecord(newRecord);
@@ -99,7 +102,7 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
       if (isFlagged) {
         setStatusMessage({
           type: 'warning',
-          text: `Warning: You are ${Math.round(distance)}m away from the hospital center. This check-in has been flagged for admin review.`
+          text: `Warning: You are ${Math.round(distance)}m away from the hospital. This check-in has been flagged.`
         });
       } else {
         setStatusMessage({
@@ -120,22 +123,19 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
 
     setLoading(true);
     try {
-      // We check location again on checkout to ensure they are still there
       const position = await getCurrentPosition();
       const userCoords = {
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         accuracy: position.coords.accuracy
       };
-
-      // Calculate checkout distance logic
+      
       const hospital = hospitals.find(h => h.id === activeShift.hospitalId);
       let isCheckoutFlagged = false;
       let dist = 0;
 
       if (hospital) {
         dist = calculateDistance(userCoords, hospital.coords);
-        // 15m buffer
         if (dist > hospital.radius + 15) {
           isCheckoutFlagged = true;
         }
@@ -145,32 +145,44 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
       const checkOutTime = new Date().getTime();
       const durationMinutes = Math.round((checkOutTime - checkInTime) / 60000);
 
+      // --- Anomaly Detection ---
+      const deviceId = getOrCreateDeviceId();
+      let anomaly: 'DEVICE_MISMATCH' | undefined = undefined;
+      if (user.boundDeviceId && deviceId !== user.boundDeviceId) {
+        anomaly = 'DEVICE_MISMATCH';
+      }
+
       const updatedRecord: AttendanceRecord = {
         ...activeShift,
         checkOutTime: new Date().toISOString(),
         checkOutCoords: userCoords,
         durationMinutes,
-        // Mark as flagged if check-in was flagged OR check-out is flagged
-        flagged: activeShift.flagged || isCheckoutFlagged
+        flagged: activeShift.flagged || isCheckoutFlagged,
+        checkOutDeviceId: deviceId,
+        anomaly: anomaly,
       };
 
       updateAttendanceRecord(updatedRecord);
       setActiveShift(undefined);
       
-      if (isCheckoutFlagged) {
+      if (anomaly) {
+         setStatusMessage({
+          type: 'error',
+          text: `Shift ended. CRITICAL: A different device was used for checkout. This has been logged for admin review.`
+        });
+      } else if (isCheckoutFlagged) {
          setStatusMessage({
           type: 'warning',
-          text: `Shift ended. Warning: You are ${Math.round(dist)}m away from the location. This checkout has been flagged.`
+          text: `Shift ended. Warning: You are ${Math.round(dist)}m away. This has been flagged.`
         });
       } else {
         setStatusMessage({
           type: 'success',
-          text: `Shift ended successfully. Total duration: ${durationMinutes} minutes.`
+          text: `Shift ended successfully. Duration: ${durationMinutes} minutes.`
         });
       }
 
     } catch (err: any) {
-       // If geo fails on checkout, just close the record but flag warning in UI
        const checkInTime = new Date(activeShift.checkInTime).getTime();
        const checkOutTime = new Date().getTime();
        const durationMinutes = Math.round((checkOutTime - checkInTime) / 60000);
@@ -212,7 +224,7 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
           statusMessage.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
           'bg-green-50 text-green-800 border border-green-200'
         }`}>
-          {statusMessage.type === 'warning' ? <AlertCircle className="w-5 h-5 shrink-0" /> : <MapPin className="w-5 h-5 shrink-0" />}
+          <AlertCircle className="w-5 h-5 shrink-0" />
           {statusMessage.text}
         </div>
       )}
@@ -232,7 +244,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
                 <button
                   key={h.id}
                   onClick={() => setSelectedHospitalId(h.id)}
-                  // Uses Green for selection
                   className={`w-full p-3 rounded-lg border text-left transition flex items-center gap-3 ${
                     selectedHospitalId === h.id 
                     ? 'border-green-500 bg-green-50 ring-1 ring-green-500' 
@@ -253,7 +264,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
           <button
             onClick={handleCheckIn}
             disabled={!selectedHospitalId || loading}
-            // Green for Start
             className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition flex justify-center items-center gap-2 shadow-lg shadow-green-100"
           >
             {loading ? 'Verifying Location...' : (
@@ -265,7 +275,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
         </div>
       ) : (
         <div className="text-center space-y-6">
-          {/* Active Shift Green Pulse */}
           <div className="py-8 bg-green-50 rounded-full w-40 h-40 mx-auto flex flex-col justify-center items-center border-4 border-green-100 animate-pulse relative">
             <Clock className="w-10 h-10 text-green-600 mb-2" />
             <span className="text-green-900 font-bold text-lg">On Duty</span>
@@ -288,7 +297,6 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
           <button
             onClick={handleCheckOut}
             disabled={loading}
-            // Red for Stop
             className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 transition flex justify-center items-center gap-2 shadow-lg shadow-red-100"
           >
              {loading ? 'Processing...' : (

@@ -144,12 +144,6 @@ export const getActiveRecord = (userId: string): AttendanceRecord | undefined =>
   return records.find(r => r.userId === userId && !r.checkOutTime);
 };
 
-// --- Logs Export ---
-export const exportLogs = (hospitalId: string): string => {
-    const logs = getAttendanceRecords().filter(r => r.hospitalId === hospitalId);
-    return JSON.stringify(logs, null, 2);
-};
-
 // Initialize Mock Data
 export const initMockData = () => {
   // Check for Super Admin

@@ -16,6 +16,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
   const [regNumber, setRegNumber] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [logViewPassword, setLogViewPassword] = useState('');
   const [loadingGeo, setLoadingGeo] = useState(false);
 
   useEffect(() => {
@@ -33,6 +34,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
         registrationNumber: regNumber,
         username,
         password,
+        logViewPassword,
         coords: {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -47,6 +49,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
       setRegNumber('');
       setUsername('');
       setPassword('');
+      setLogViewPassword('');
       
       setHospitals(getHospitals());
       alert(`Hospital Registered! Login Username: ${username}`);
@@ -95,6 +98,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                 <input type="text" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500" required />
                </div>
             </div>
+             <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Log View Password (for reports)</label>
+                <input type="text" value={logViewPassword} onChange={e => setLogViewPassword(e.target.value)} className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. manager123" required />
+             </div>
             <button type="submit" disabled={loadingGeo} className="w-full bg-blue-600 text-white py-3 rounded hover:bg-blue-700 transition flex justify-center items-center gap-2">
               {loadingGeo ? <Loader2 className="animate-spin w-4 h-4" /> : <MapPin className="w-4 h-4" />}
               {loadingGeo ? 'Acquiring GPS...' : 'Capture Location & Create'}
@@ -109,9 +116,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
               <div key={h.id} className="p-4 bg-slate-50 rounded border border-slate-200">
                 <div className="font-bold text-slate-800">{h.name}</div>
                 <div className="text-sm text-slate-600">Reg: {h.registrationNumber}</div>
-                <div className="mt-2 text-xs flex gap-4 text-slate-500">
-                   <span>User: <span className="font-mono bg-slate-200 px-1 rounded">{h.username}</span></span>
-                   <span>Pass: <span className="font-mono bg-slate-200 px-1 rounded">{h.password}</span></span>
+                <div className="mt-2 text-xs grid grid-cols-2 gap-2 text-slate-500">
+                   <span>Login User: <span className="font-mono bg-slate-200 px-1 rounded">{h.username}</span></span>
+                   <span>Login Pass: <span className="font-mono bg-slate-200 px-1 rounded">{h.password}</span></span>
+                   <span className="col-span-2">Log Pass: <span className="font-mono bg-slate-200 px-1 rounded">{h.logViewPassword}</span></span>
                 </div>
               </div>
             ))}

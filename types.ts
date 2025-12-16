@@ -16,6 +16,7 @@ export interface Hospital {
   registrationNumber: string;
   username: string; // Used for Hospital Login
   password: string; // Used for Hospital Login
+  logViewPassword?: string; // New: Secondary password for viewing logs
   coords: Coords;
   radius: number; // in meters
 }
@@ -42,6 +43,9 @@ export interface AttendanceRecord {
   flagged: boolean; // True if checked in/out outside radius
   distanceFromCenter: number; // in meters at check-in
   durationMinutes?: number;
+  checkInDeviceId?: string; // New: Track device on check-in
+  checkOutDeviceId?: string; // New: Track device on check-out
+  anomaly?: 'DEVICE_MISMATCH'; // New: Flag for suspicious activity
 }
 
 export interface AttendanceStats {
