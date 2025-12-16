@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Hospital, User, UserRole, AttendanceRecord } from '../types';
-import { getStaffByHospital, saveUser, deleteUser, generateHospitalConfigLink, getAttendanceRecords } from '../services/storage';
+import { getStaffByHospital, saveUser, deleteUser, generateHospitalConfigLink, getAttendanceRecords, importAttendanceData } from '../services/storage';
 import { generateAttendancePDF } from '../services/pdfGenerator';
 import StaffDashboard from './StaffDashboard';
-import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, Calendar } from 'lucide-react';
+import { Users, UserPlus, Settings, LogOut, Copy, Share2, FileDown, Trash2, Calendar, RefreshCw, Clipboard } from 'lucide-react';
 
 interface HospitalPortalProps {
   hospital: Hospital;
@@ -30,6 +30,11 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
   // Date Range State
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  // Sync State
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncDataInput, setSyncDataInput] = useState('');
+  const [syncResult, setSyncResult] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -90,7 +95,7 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
 
   const handleLogExport = (e: React.FormEvent) => {
     e.preventDefault();
-    // Validate password, handling potential undefined values safely
+    // Validate password
     const storedPass = hospital.logViewPassword || '';
     const inputPass = logPassInput || '';
 
@@ -120,6 +125,23 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
     }
   };
 
+  const handleImportSync = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!syncDataInput) return;
+    
+    const result = importAttendanceData(syncDataInput);
+    if (result.success) {
+      setSyncResult(`Success! Updated ${result.count} records.`);
+      setSyncDataInput('');
+      setTimeout(() => {
+        setShowSyncModal(false);
+        setSyncResult('');
+      }, 2000);
+    } else {
+      setSyncResult('Failed. Invalid data code.');
+    }
+  };
+
 
   if (view === 'STAFF_ACTIVE' && selectedStaff) {
     return (
@@ -128,7 +150,7 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
         onLogout={() => {
           setSelectedStaff(null);
           setView('SELECT_PROFILE');
-          loadData(); // Reload staff list in case device ID was bound
+          loadData(); 
         }} 
       />
     );
@@ -146,6 +168,8 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-xl border shadow-sm space-y-6">
+            
+            {/* ADD STAFF */}
             <div>
               <h3 className="font-semibold mb-4 flex items-center gap-2"><UserPlus className="w-5 h-5 text-green-600" /> Add New Staff</h3>
               <form onSubmit={handleAddStaff} className="space-y-4">
@@ -154,19 +178,59 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
                 <button className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">Add Staff Member</button>
               </form>
             </div>
+
+            {/* SYNC DATA */}
+             <div className="pt-6 border-t">
+              <h4 className="font-semibold mb-2 flex items-center gap-2"><RefreshCw className="w-4 h-4 text-purple-600" /> Sync Staff Records</h4>
+              <p className="text-xs text-slate-500 mb-3">Staff data is stored on their devices. Use this to manually merge their records into this dashboard.</p>
+              <button onClick={() => setShowSyncModal(true)} className="w-full border border-purple-200 bg-purple-50 text-purple-700 py-2 rounded flex items-center justify-center gap-2 hover:bg-purple-100 transition">
+                <Clipboard className="w-4 h-4" /> Import Staff Data Code
+              </button>
+              
+              {showSyncModal && (
+                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                   <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md">
+                     <h3 className="font-bold text-lg mb-2">Import Attendance Data</h3>
+                     <p className="text-sm text-slate-600 mb-4">Paste the sync code provided by your staff member below.</p>
+                     
+                     <form onSubmit={handleImportSync}>
+                       <textarea 
+                          value={syncDataInput} 
+                          onChange={e => setSyncDataInput(e.target.value)} 
+                          className="w-full h-32 p-2 border rounded text-xs font-mono bg-slate-50"
+                          placeholder="Paste code here..."
+                       ></textarea>
+                       
+                       {syncResult && (
+                         <div className={`text-sm mt-2 font-bold ${syncResult.includes('Success') ? 'text-green-600' : 'text-red-600'}`}>
+                           {syncResult}
+                         </div>
+                       )}
+
+                       <div className="flex gap-2 mt-4">
+                         <button type="button" onClick={() => setShowSyncModal(false)} className="flex-1 py-2 bg-slate-200 rounded">Cancel</button>
+                         <button type="submit" className="flex-1 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Merge Records</button>
+                       </div>
+                     </form>
+                   </div>
+                 </div>
+              )}
+            </div>
+
+            {/* SHARE APP */}
             <div className="pt-6 border-t">
               <h4 className="font-semibold mb-2 flex items-center gap-2"><Share2 className="w-4 h-4 text-blue-600" /> Share App Access</h4>
-              <p className="text-xs text-slate-500 mb-3">Send this link to staff to automatically configure their app for {hospital.name}.</p>
               <button onClick={handleShareLink} className="w-full border border-blue-200 bg-blue-50 text-blue-700 py-2 rounded flex items-center justify-center gap-2 hover:bg-blue-100 transition">
                 {linkCopied ? <span className="font-bold">Link Copied!</span> : <><Copy className="w-4 h-4" /> Copy Access Link</>}
               </button>
             </div>
+
+            {/* DATA EXPORT */}
             <div className="pt-6 border-t">
               <h4 className="font-semibold mb-2 flex items-center gap-2"><FileDown className="w-4 h-4 text-slate-600" /> Data Export</h4>
               <button onClick={() => setShowLogPassPrompt(true)} className="w-full border border-slate-200 text-slate-700 py-2 rounded hover:bg-slate-50">Download Attendance PDF</button>
               {showLogPassPrompt && (
                 <form onSubmit={handleLogExport} className="mt-4 p-4 bg-slate-50 rounded-lg border">
-                  
                   <div className="mb-4 space-y-2">
                     <label className="block text-xs font-bold text-slate-500 uppercase">Date Range</label>
                     <div className="flex gap-2">
@@ -187,6 +251,7 @@ const HospitalPortal: React.FC<HospitalPortalProps> = ({ hospital, onLogout }) =
               )}
             </div>
           </div>
+
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="font-semibold mb-4">Staff List</h3>
             <div className="space-y-2 max-h-[400px] overflow-y-auto">

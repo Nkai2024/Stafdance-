@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Hospital, AttendanceRecord } from '../types';
-import { getHospitals, getActiveRecord, saveAttendanceRecord, updateAttendanceRecord, getOrCreateDeviceId, updateUser, getAttendanceRecords } from '../services/storage';
+import { getHospitals, getActiveRecord, saveAttendanceRecord, updateAttendanceRecord, getOrCreateDeviceId, updateUser, getAttendanceRecords, exportAttendanceData } from '../services/storage';
 import { getCurrentPosition, calculateDistance } from '../services/geoUtils';
-import { MapPin, LogIn, LogOut, Clock, AlertCircle, Building2, Camera, Upload, User as UserIcon, Calendar, CheckCircle } from 'lucide-react';
+import { MapPin, LogIn, LogOut, Clock, AlertCircle, Building2, Camera, Upload, User as UserIcon, Calendar, CheckCircle, Share2, ClipboardCheck } from 'lucide-react';
 
 interface StaffDashboardProps {
   user: User;
@@ -22,6 +22,11 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [history, setHistory] = useState<AttendanceRecord[]>([]);
   const [stats, setStats] = useState({ lateDays: 0, earlyLeavings: 0, totalDays: 0 });
+
+  // Sync State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportCode, setExportCode] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setHospitals(getHospitals());
@@ -112,13 +117,22 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
         const base64String = reader.result as string;
         const updatedUser = { ...user, profilePicture: base64String };
         updateUser(updatedUser);
-        // Force re-render is handled by parent usually, but since we receive prop 'user',
-        // we might need to manually trigger or wait for parent refresh. 
-        // For now, we update local state implicitly by how storage works or reload window.
-        window.location.reload(); // Simple way to refresh user prop from storage in this architecture
+        window.location.reload(); 
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleGenerateSyncCode = () => {
+    const code = exportAttendanceData(user.hospitalId, user.id);
+    setExportCode(code);
+    setShowExportModal(true);
+    setCopied(false);
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(exportCode);
+    setCopied(true);
   };
 
   const handleCheckIn = async () => {
@@ -319,6 +333,35 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
             </div>
         </div>
       </div>
+
+      {/* SYNC DATA BUTTON */}
+      <div className="bg-white rounded-xl shadow-sm border border-purple-100 p-4 mb-4 flex justify-between items-center">
+        <div>
+          <h4 className="font-bold text-purple-900 text-sm">Update Manager</h4>
+          <p className="text-xs text-purple-600">Send your records to admin.</p>
+        </div>
+        <button onClick={handleGenerateSyncCode} className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-purple-200">
+          <Share2 className="w-4 h-4" /> Sync Data
+        </button>
+      </div>
+
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-2 text-center">Sync with Manager</h3>
+            <p className="text-sm text-slate-600 mb-4 text-center">Copy this code and send it to your hospital manager to update your attendance on their dashboard.</p>
+            
+            <div className="bg-slate-100 p-3 rounded-lg break-all text-xs font-mono mb-4 max-h-32 overflow-y-auto border border-slate-300">
+              {exportCode}
+            </div>
+
+            <button onClick={handleCopyCode} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold mb-3 flex justify-center items-center gap-2 hover:bg-blue-700">
+              {copied ? <><ClipboardCheck className="w-5 h-5" /> Copied!</> : 'Copy Code'}
+            </button>
+            <button onClick={() => setShowExportModal(false)} className="w-full text-slate-500 py-2 hover:text-slate-800">Close</button>
+          </div>
+        </div>
+      )}
 
       {/* ACTION CARD */}
       <div className="bg-white rounded-xl shadow-lg border border-slate-100 p-6 mb-6">

@@ -71,6 +71,47 @@ export const importHospitalConfig = (encoded: string): { success: boolean, messa
   }
 };
 
+// --- Attendance Sync (Manual) ---
+export const exportAttendanceData = (hospitalId: string, userId?: string): string => {
+  const records = getAttendanceRecords().filter(r => 
+    r.hospitalId === hospitalId && (!userId || r.userId === userId)
+  );
+  return btoa(JSON.stringify(records));
+};
+
+export const importAttendanceData = (encodedData: string): { success: boolean, count: number } => {
+  try {
+    const incomingRecords: AttendanceRecord[] = JSON.parse(atob(encodedData));
+    if (!Array.isArray(incomingRecords)) return { success: false, count: 0 };
+
+    const currentRecords = getAttendanceRecords();
+    let updatedCount = 0;
+
+    incomingRecords.forEach(incoming => {
+      const index = currentRecords.findIndex(c => c.id === incoming.id);
+      
+      if (index === -1) {
+        // New record
+        currentRecords.push(incoming);
+        updatedCount++;
+      } else {
+        // Update existing only if incoming has more info (e.g. checkout time)
+        const existing = currentRecords[index];
+        if (!existing.checkOutTime && incoming.checkOutTime) {
+          currentRecords[index] = incoming;
+          updatedCount++;
+        }
+      }
+    });
+
+    localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(currentRecords));
+    return { success: true, count: updatedCount };
+  } catch (e) {
+    console.error("Import failed", e);
+    return { success: false, count: 0 };
+  }
+};
+
 // --- Hospitals ---
 export const getHospitals = (): Hospital[] => {
   const data = localStorage.getItem(HOSPITALS_KEY);
@@ -96,8 +137,9 @@ export const deleteHospital = (hospitalId: string) => {
   const hospitals = getHospitals().filter(h => h.id !== hospitalId);
   localStorage.setItem(HOSPITALS_KEY, JSON.stringify(hospitals));
   
-  // Optional: Cleanup associated users or records if needed, 
-  // but keeping them for audit logs is often safer.
+  // Also clean up staff associated with this hospital to keep data clean
+  const users = getUsers().filter(u => u.hospitalId !== hospitalId);
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
 };
 
 // --- Users ---

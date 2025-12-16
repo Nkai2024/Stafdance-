@@ -43,8 +43,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
     // Note: We don't reset geolocation on simple edit unless we re-capture
   };
 
-  const handleDeleteClick = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this hospital? This action cannot be undone.")) {
+  const handleDeleteClick = (id: string, hospitalName: string) => {
+    if (window.confirm(`WARNING: Are you sure you want to delete ${hospitalName}?\n\nThis will remove the hospital and ALL associated staff accounts from this device. This action cannot be undone.`)) {
       deleteHospital(id);
       setHospitals(getHospitals());
       if (editId === id) resetForm();
@@ -194,11 +194,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout }) => {
                     <Edit2 className="w-4 h-4" />
                   </button>
                   <button 
-                    onClick={() => handleDeleteClick(h.id)}
-                    className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-100 rounded bg-white border border-slate-200 shadow-sm"
+                    onClick={() => handleDeleteClick(h.id, h.name)}
+                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-100 rounded bg-white border border-red-200 shadow-sm flex items-center gap-1 px-2"
                     title="Delete Hospital"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" /> <span className="text-xs font-bold">Delete</span>
                   </button>
                 </div>
 
